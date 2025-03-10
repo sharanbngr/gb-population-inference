@@ -13,8 +13,8 @@ def get_resolved_signals(parameters, time_array, sample_rate):
     _, frequency_domain_signal = get_rfft(time_domain_signal, time_array, sample_rate)
     return frequency_domain_signal
 
-def get_rfft(data, times, sample_rate):
-    fft = jnp.fft.rfft(data) # / data.size
+def get_rfft(data, times, sample_rate, axis=0):
+    fft = jnp.fft.rfft(data, axis=0) # / data.size
     freqs = jnp.fft.rfftfreq(data.size, d=1/sample_rate)
     return freqs[1:], fft[1:] / sample_rate
 

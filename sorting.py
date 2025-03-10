@@ -151,7 +151,8 @@ def vector_sorting(binaries, fs_full, noisePSD, duration, LISA_rx, wts=1, snr_th
             fbin_sort_i
         )  ## this will allow us to later return to the original order
 
-        fbin_Nij = calc_Nij(fbin_amps_i[fbin_sort_i], noisePSD[i], wts, duration)
+        fbin_Nij = calc_Nij(fbin_amps_i[fbin_sort_i], noisePSD[i], wts[fbin_sort_i], duration)
+
         res_mask_i = fbin_Nij >= snr_thresh
         res_mask_i_resort = res_mask_i[re_sort_i]
         fbin_res_list.append(dwd_idx[fbin_mask_i][res_mask_i_resort])
@@ -180,9 +181,8 @@ def calc_Nij(A, noisePSD, wts, duration):
     wts (float or array) : weights from fiducial population (1 for now)
     """
     #     np.sqrt(dur_noise*np.array(df['amplitude'])[current_unres_idx]**2 / (4*current_latf))
-    try:
-        return np.sqrt(duration * A**2 / (4 * (noisePSD + np.cumsum(wts * A**2))))
-    except:
-        import pdb; pdb.set_trace()
+
+    return np.sqrt(duration * A**2 / (4 * (noisePSD + np.cumsum(wts * A**2))))
+  
 
 #     return A / (noisePSD + np.cumsum(wts*A))

@@ -145,17 +145,16 @@ def generate_one_detector_data(
         data_dict["theoretical_noise_PSD"],
         duration,
         R_lisa,
-        wts=1,
+        wts=np.ones(injected_gw_parameters.shape[0]),
         snr_thresh=7,
     )
 
     ## we're not going to sample over resolved binaries in this toy model. Keeping them fixed.
     resolved = {}
-    resolved["Nresolved"] = N_res
+    resolved["N_resolved"] = N_res
     _, resolved["ffts_resolved"] = get_rfft(
-        popstrains_in_detector[:, res_idx].T, data_dict["t"], 1.0 / sampling_duration
+        popstrains_in_detector[:, res_idx], data_dict["t"], 1.0 / sampling_duration
     )
-
     resolved["dwd_parameters"] = injected_gw_parameters.iloc[res_idx]
 
     resolved["scaled_PSD_resolved"] = (
@@ -222,11 +221,13 @@ class pop_inference:
         ## used for vector sorting
         self.calc_fiducial_population()
 
+        print("Setting up the Hierarchical bayesian Inference Framework.")
+
     def calc_fiducial_population(self):
 
         self.fiducial_Mc_powerlaw_index = 2.0
         self.fiducial_r_powerlaw_index = -1.1
-        n_dwd = 2e4
+        n_dwd = 1e4
 
         fiducial_dist, poptimes, popstrains = get_dwd_pop_strains(
             self.fiducial_Mc_powerlaw_index,
@@ -241,6 +242,11 @@ class pop_inference:
         ## hacky but works for the toy model
         ## setting arbitrary (flat) response functions
         self.fiducial_popstrains_in_detector = self.R_lisa * popstrains
+        _, self.fiducial_popstrains_ffts = get_rfft(
+        self.fiducial_popstrains_in_detector , self.data_dict["t"], 1.0 / self.sampling_duration
+    )
+
+        self.fiducial_popstrains_psds = 2 * np.abs(self.fiducial_popstrains_ffts)**2 / self.duration
 
         self._fiducial_chirpmass_logpdf, self._fiducial_seperation_logpdf = (
             self.calc_population_weights(
@@ -261,16 +267,28 @@ class pop_inference:
 
         return chirpmass_logpdf, seperation_logpdf
 
+    def unresolved_foreground(self, wts, unres_idx):
+
+        unresolved_psds = self.fiducial_popstrains_psds[:, unres_idx]
+
+        wts_unresolved = wts.to_numpy()[unres_idx]
+
+        S_unresolved = np.mean(unresolved_psds * wts_unresolved, axis=1)
+
+        return S_unresolved
+        # import pdb; pdb.set_trace()
+
     def prior(self, theta):
 
-        theta[0] = -10 + 20 * theta[0]
-        theta[1] = -10 + 20 * theta[1]
+        theta[0] = 100 + 5e3 * theta[0]  ## n_tot
+        theta[1] = -10 + 20 * theta[1]  ## Mc powerlaw
+        theta[2] = -10 + 20 * theta[2]  ## seperation powerlaw
 
         return theta
 
     def log_likelihood(self, theta):
 
-        Mc_powerlaw_index, r_powerlaw_index = theta[0], theta[1]
+        N_tot, Mc_powerlaw_index, r_powerlaw_index = theta[0], theta[1], theta[2]
         chirpmass_logpdf, seperation_logpdf = self.calc_population_weights(
             Mc_powerlaw_index, r_powerlaw_index
         )
@@ -279,7 +297,9 @@ class pop_inference:
         seperation_log_wts = seperation_logpdf - self._fiducial_seperation_logpdf
 
         wts = np.exp(chirpmass_log_wts + seperation_log_wts)
-        fg, N_res, res_idx, unres_idx = vector_sorting(
+        
+        #fg, N_res, res_idx, unres_idx = vector_sorting(
+        _, _, res_idx, unres_idx = vector_sorting(
             self.fiducial_population,
             self.data_dict["freqs"],
             self.data_dict["theoretical_noise_PSD"],
@@ -289,8 +309,25 @@ class pop_inference:
             snr_thresh=7,
         )
 
-        import pdb; pdb.set_trace()
+        f_resolved = np.sum(wts.to_numpy()[res_idx])
 
+        S_unresolved = self.unresolved_foreground(wts, unres_idx)
+
+        ## total noise : astrophysical + instrumental
+        C_total = self.data_dict["theoretical_noise_PSD"] + S_unresolved
+
+        residuals = self.data_dict["fft_data"] - np.sum(
+            self.resolved["ffts_resolved"], axis=1
+        )
+
+        log_poisson_term = - N_tot * f_resolved + self.resolved["N_resolved"] * np.log(N_tot * f_resolved)
+
+        log_likelihood = (-2 / self.duration) * np.sum(
+            np.abs(residuals) ** 2 / C_total
+        ) - np.sum(np.log(2 * self.duration * C_total))
+
+
+        return log_likelihood + log_poisson_term
 
 def toy_model_inference():
 
