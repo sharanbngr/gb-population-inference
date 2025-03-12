@@ -1,5 +1,6 @@
 from matplotlib import pyplot as plt
 import numpy as np
+import jax.numpy as jnp
 import scipy
 import pandas as pd
 import os, sys
@@ -15,7 +16,7 @@ from datageneration.datageneration.distributions import TruncatedPowerLaw
 
 from sorting import vector_sorting, iterative_sorting
 from dynesty import NestedSampler
-
+from dynesty.utils import resample_equal
 
 def get_dwd_pop_strains(
     Mc_powerlaw_index, r_powerlaw_index, n_dwd, duration, sampling_duration
@@ -309,7 +310,7 @@ class pop_inference:
             snr_thresh=7,
         )
 
-        f_resolved = np.sum(wts.to_numpy()[res_idx])
+        f_resolved = np.sum(wts.to_numpy()[res_idx]) + 1e-80
 
         S_unresolved = self.unresolved_foreground(wts, unres_idx)
 
@@ -360,6 +361,21 @@ def toy_model_inference():
         nlive=250,
     )
 
+    engine.run_nested(dlogz=0.1, print_progress=True)
+
+    res = engine.results
+    weights = np.exp(res['logwt'] - res['logz'][-1])
+    weights[-1] = 1 - np.sum(weights[0:-1])
+
+    post_samples = resample_equal(res.samples, weights)
+
+    # Pull the evidence and the evidence error
+    logz = res['logz']
+    logzerr = res['logzerr']
+
+    np.savetxt("./inference_tests/post_samples.txt",post_samples)
+    np.savetxt("./inference_tests/logz.txt", logz)
+    np.savetxt("./inference_tests/logzerr.txt", logzerr)
 
 if __name__ == "__main__":
 
